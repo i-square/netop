@@ -84,6 +84,41 @@ class MainUiTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("\n", str(status))
         self.assertIn("单位 bit", str(status))
 
+    async def test_default_interface_is_first_network_row(self) -> None:
+        app = TestNetopApp()
+        snapshot = MonitorSnapshot(
+            interfaces=(
+                InterfaceRate("br-0b2", 900.0, 0.0),
+                InterfaceRate("eno1", 100.0, 0.0),
+            ),
+            services=(),
+            processes=(),
+            service_details={},
+            process_details={},
+            captured_at=1.0,
+            privileged=True,
+            permission_limited=False,
+            default_interface="eno1",
+        )
+        async with app.run_test(size=(120, 40)) as pilot:
+            app.apply_snapshot(snapshot)
+            await pilot.pause()
+
+            network = app.query_one("#network")
+
+        self.assertEqual(network.get_row_index("eno1"), 0)
+        self.assertEqual(network.cursor_row, 0)
+
+    async def test_network_row_height_has_minimum_and_scales(self) -> None:
+        for height, expected_network_height in ((24, 7), (40, 7), (60, 9)):
+            with self.subTest(height=height):
+                app = TestNetopApp()
+                async with app.run_test(size=(120, height)) as pilot:
+                    await pilot.pause()
+                    network = app.query_one("#network")
+
+                    self.assertEqual(network.region.height, expected_network_height)
+
     async def test_sort_traffic_action_restores_default_sort(self) -> None:
         app = TestNetopApp()
         async with app.run_test(size=(120, 40)) as pilot:

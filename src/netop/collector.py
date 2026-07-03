@@ -108,6 +108,7 @@ class MonitorSnapshot:
     captured_at: float
     privileged: bool
     permission_limited: bool
+    default_interface: str | None = None
 
 
 def run_command(command: list[str], *, use_sudo: bool = False) -> str:
@@ -277,6 +278,32 @@ def read_interface_counters(path: Path = Path("/proc/net/dev")) -> dict[str, tup
     return counters
 
 
+def read_default_interface(path: Path = Path("/proc/net/route")) -> str | None:
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+
+    best_route: tuple[int, str] | None = None
+    for line in lines[1:]:
+        parts = line.split()
+        if len(parts) < 8:
+            continue
+        interface, destination, _, flags, _, _, metric = parts[:7]
+        if destination != "00000000":
+            continue
+        try:
+            flags_value = int(flags, 16)
+            metric_value = int(metric)
+        except ValueError:
+            continue
+        if not flags_value & 0x1:
+            continue
+        if best_route is None or metric_value < best_route[0]:
+            best_route = (metric_value, interface)
+    return best_route[1] if best_route else None
+
+
 def format_rate(bytes_per_second: float, byte_mode: bool = False) -> str:
     if byte_mode:
         value = max(bytes_per_second, 0.0)
@@ -310,6 +337,7 @@ class NetCollector:
         net_entries = parse_net_entries(run_command(["ss", "-tpanH"], use_sudo=self._use_sudo))
         processes = read_process_table()
         current_interfaces = read_interface_counters()
+        default_interface = read_default_interface()
 
         interval = self._interval(now)
         connection_rates = self._connection_rates(
@@ -338,6 +366,7 @@ class NetCollector:
             captured_at=now,
             privileged=privileged,
             permission_limited=not privileged and has_unknown_process_owner(net_entries),
+            default_interface=default_interface,
         )
 
     def _interval(self, now: float) -> float | None:

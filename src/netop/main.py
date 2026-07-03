@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from enum import Enum
+from math import ceil
 
-from textual import work
+from textual import events, work
 from textual.app import App, ComposeResult
 from textual.containers import Container
 from textual.widgets import DataTable, Footer, Header, Input, Static
@@ -121,6 +122,10 @@ class NetopApp(App):
     ]
 
     ENABLE_COMMAND_PALETTE = False
+    TOP_ROW_MIN_HEIGHT = 7
+    TOP_ROW_RATIO = 0.15
+    FIXED_BOTTOM_GRID_ROWS = 4
+    MIN_MIDDLE_GRID_ROWS = 2
 
     def __init__(self) -> None:
         super().__init__()
@@ -147,9 +152,20 @@ class NetopApp(App):
 
     def on_mount(self) -> None:
         self.title = "netop"
+        self._sync_layout_rows(self.screen.size.height)
         self._setup_tables()
         self._timer = self.set_interval(self.refresh_interval, self.request_update)
         self.request_update()
+
+    def on_resize(self, event: events.Resize) -> None:
+        self._sync_layout_rows(event.size.height)
+
+    def _sync_layout_rows(self, screen_height: int) -> None:
+        content_height = max(screen_height - 2, 0)
+        max_top_height = max(content_height - self.FIXED_BOTTOM_GRID_ROWS - self.MIN_MIDDLE_GRID_ROWS, 1)
+        proportional_height = ceil(content_height * self.TOP_ROW_RATIO)
+        top_height = min(max(self.TOP_ROW_MIN_HEIGHT, proportional_height), max_top_height)
+        self.screen.styles.grid_rows = f"{top_height} 1fr 1fr 3 1"
 
     def _setup_tables(self) -> None:
         network = self.query_one("#network", DataTable)
@@ -357,7 +373,11 @@ class NetopApp(App):
 
     def _filter_interfaces(self, rows: tuple[InterfaceRate, ...], search: str) -> list[InterfaceRate]:
         filtered = [row for row in rows if not search or search in row.name.lower()]
-        return sorted(filtered, key=lambda item: item.upload + item.download, reverse=True)
+        default_interface = self.snapshot.default_interface if self.snapshot else None
+        return sorted(filtered, key=lambda item: self._interface_sort_value(item, default_interface))
+
+    def _interface_sort_value(self, row: InterfaceRate, default_interface: str | None) -> tuple[bool, float, str]:
+        return (row.name != default_interface, -(row.upload + row.download), row.name)
 
     def _filter_services(self, rows: tuple[ServiceSummary, ...], search: str) -> list[ServiceSummary]:
         filtered = [

@@ -1,4 +1,6 @@
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from netop.collector import (
@@ -10,6 +12,7 @@ from netop.collector import (
     has_unknown_process_owner,
     parse_connection_counters,
     parse_net_entries,
+    read_default_interface,
     split_endpoint,
 )
 
@@ -61,6 +64,18 @@ ESTAB 0 0 10.0.0.1:443 1.2.3.4:50000 users:(("nginx",pid=100,fd=7))
         entries = parse_net_entries("ESTAB 0 0 10.0.0.1:443 1.2.3.4:50000\n")
 
         self.assertTrue(has_unknown_process_owner(entries))
+
+    def test_read_default_interface_uses_lowest_metric_default_route(self) -> None:
+        content = """Iface Destination Gateway Flags RefCnt Use Metric Mask MTU Window IRTT
+br-0b2 00000000 010011AC 0003 0 0 100 00000000 0 0 0
+eno1 00000000 010011AC 0003 0 0 10 00000000 0 0 0
+docker0 0011AC0A 00000000 0001 0 0 0 00FFFFFF 0 0 0
+"""
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "route"
+            path.write_text(content, encoding="utf-8")
+
+            self.assertEqual(read_default_interface(path), "eno1")
 
     def test_collector_uses_in_memory_deltas(self) -> None:
         ss_counters = [
