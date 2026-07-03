@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "netop"
+version = "0.1.0"
+description = "轻量级 Linux 终端网络流量监控工具"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [
+    { name = "Davin", email = "949178863@qq.com" },
+]
+keywords = ["linux", "network", "monitor", "terminal", "textual"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Environment :: Console :: Curses",
+    "Intended Audience :: System Administrators",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Monitoring",
+    "Topic :: System :: Networking :: Monitoring",
+]
+dependencies = [
+    "textual>=8.2,<9",
+    "rich>=14,<16",
+]
+
+[project.urls]
+Homepage = "https://github.com/CDWEN0526/netop"
+Repository = "https://github.com/CDWEN0526/netop"
+Issues = "https://github.com/CDWEN0526/netop/issues"
+
+[project.scripts]
+netop = "netop.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["netop*"]
+
+[tool.unittest]
+start-dir = "tests"
+pattern = "test*.py"
