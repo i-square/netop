@@ -4,7 +4,8 @@ from enum import Enum
 
 from textual import work
 from textual.app import App, ComposeResult
-from textual.widgets import DataTable, Footer, Header, Input, Log, Static
+from textual.containers import Container
+from textual.widgets import DataTable, Footer, Header, Input, Static
 
 from netop.collector import (
     DetailSummary,
@@ -36,9 +37,9 @@ class NetopApp(App):
     CSS = """
     Screen {
         layout: grid;
-        grid-size: 4 3;
-        grid-columns: 20% 40% 30% 10%;
-        grid-rows: 45% 45% 10%;
+        grid-size: 5 5;
+        grid-columns: 1fr 1fr 1fr 1fr 1fr;
+        grid-rows: 7 1fr 1fr 3 1;
     }
 
     Header {
@@ -60,24 +61,40 @@ class NetopApp(App):
     }
 
     #services {
-        row-span: 1;
+        column-span: 4;
     }
 
     #processes {
-        row-span: 1;
-    }
-
-    #details {
-        column-span: 2;
+        column-span: 3;
         row-span: 2;
     }
 
-    #log {
-        row-span: 1;
+    #details_panel {
+        column-span: 2;
+        row-span: 3;
+        height: 100%;
+        layout: vertical;
+        border: solid #00BFFF;
+        padding: 0 1;
+    }
+
+    #details_hint {
+        height: auto;
+        text-wrap: wrap;
+        color: $text-muted;
+    }
+
+    #details {
+        height: 1fr;
     }
 
     #status {
-        row-span: 1;
+        column-span: 5;
+        height: 100%;
+        padding: 0 1;
+        text-wrap: nowrap;
+        background: #4A3B16;
+        color: #F4E7B0;
     }
 
     #search {
@@ -94,6 +111,7 @@ class NetopApp(App):
         ("b", "toggle_rate_mode", "bit/byte"),
         ("t", "slow_refresh", "慢刷新"),
         ("y", "fast_refresh", "快刷新"),
+        ("r", "sort_traffic", "流量排序"),
         ("c", "sort_connections", "连接排序"),
         ("i", "sort_unique_ips", "IP排序"),
         ("u", "sort_upload", "上传排序"),
@@ -113,24 +131,23 @@ class NetopApp(App):
         self.refresh_interval = 1.0
         self.byte_mode = False
         self._timer = None
+        self._suppress_table_events = False
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         yield DataTable(id="network", classes="box")
         yield DataTable(id="services", classes="box")
-        yield DataTable(id="details", classes="box")
-        yield Log(id="log", classes="box", highlight=True)
         yield DataTable(id="processes", classes="box")
-        yield Static("", id="status", classes="box")
-        yield Input(placeholder="搜索 PID、程序名、端口、IP", id="search")
+        with Container(id="details_panel"):
+            yield Static("", id="details_hint")
+            yield DataTable(id="details")
+        yield Input(placeholder="搜索 PID、进程、端口、IP", id="search")
+        yield Static("", id="status")
         yield Footer()
 
     def on_mount(self) -> None:
         self.title = "netop"
         self._setup_tables()
-        self.query_one("#log", Log).write_line(
-            "netop: 纯监控模式。默认显示 Kb/s、Mb/s，按 b 切换字节模式。"
-        )
         self._timer = self.set_interval(self.refresh_interval, self.request_update)
         self.request_update()
 
@@ -150,12 +167,14 @@ class NetopApp(App):
         processes.cursor_type = "row"
         processes.add_columns("PID", "进程", "IP数", "连接", "上传", "下载", "CPU", "MEM")
 
+        details_panel = self.query_one("#details_panel", Container)
+        details_panel.border_title = "连接详情"
+        details_panel.border_subtitle = "等待选择"
+
         details = self.query_one("#details", DataTable)
-        details.border_title = "详情"
         details.cursor_type = "row"
         details.add_columns("客户端IP", "端口", "上传", "下载")
 
-        self.query_one("#status", Static).border_title = "状态"
         self.query_one("#search", Input).border_title = "搜索"
 
     @work(thread=True, exclusive=True)
@@ -175,7 +194,7 @@ class NetopApp(App):
         self.refresh_tables()
 
     def report_error(self, exc: Exception) -> None:
-        self.query_one("#log", Log).write_line(f"采集失败: {exc}")
+        self.query_one("#status", Static).update(f"采集失败: {exc}")
 
     def refresh_tables(self) -> None:
         if self.snapshot is None:
@@ -185,20 +204,58 @@ class NetopApp(App):
         services = self._filter_services(self.snapshot.services, search)
         processes = self._filter_processes(self.snapshot.processes, search)
         interfaces = self._filter_interfaces(self.snapshot.interfaces, search)
+        self._ensure_visible_selection(services, processes)
 
-        self._replace_table(
-            "#network",
-            [(row.name, format_rate(row.upload, self.byte_mode), format_rate(row.download, self.byte_mode)) for row in interfaces],
-            [row.name for row in interfaces],
-        )
-        self._replace_table("#services", [self._service_row(row) for row in services], [row.row_id for row in services])
-        self._replace_table("#processes", [self._process_row(row) for row in processes], [row.row_id for row in processes])
-        self._refresh_details(search)
-        self._refresh_status(len(interfaces), len(services), len(processes))
+        self._suppress_table_events = True
+        try:
+            self._replace_table(
+                "#network",
+                [(row.name, format_rate(row.upload, self.byte_mode), format_rate(row.download, self.byte_mode)) for row in interfaces],
+                [row.name for row in interfaces],
+            )
+            self._replace_table(
+                "#services",
+                [self._service_row(row) for row in services],
+                [row.row_id for row in services],
+                self._selected_row_key(DetailMode.SERVICE),
+            )
+            self._replace_table(
+                "#processes",
+                [self._process_row(row) for row in processes],
+                [row.row_id for row in processes],
+                self._selected_row_key(DetailMode.PROCESS),
+            )
+            self._refresh_details(search)
+            self._refresh_status(len(interfaces), len(services), len(processes))
+        finally:
+            self.call_after_refresh(self._resume_table_events)
+
+    def _ensure_visible_selection(self, services: list[ServiceSummary], processes: list[ProcessSummary]) -> None:
+        if self.selected_detail is not None:
+            mode, row_id = self.selected_detail
+            if mode is DetailMode.SERVICE and any(row.row_id == row_id for row in services):
+                return
+            if mode is DetailMode.PROCESS and any(row.row_id == row_id for row in processes):
+                return
+        if processes:
+            self.selected_detail = (DetailMode.PROCESS, processes[0].row_id)
+        elif services:
+            self.selected_detail = (DetailMode.SERVICE, services[0].row_id)
+        else:
+            self.selected_detail = None
+
+    def _selected_row_key(self, mode: DetailMode) -> str | None:
+        if self.selected_detail is None:
+            return None
+        selected_mode, row_id = self.selected_detail
+        if selected_mode is not mode:
+            return None
+        return row_id
 
     def _refresh_details(self, search: str) -> None:
         details: tuple[DetailSummary, ...] = ()
-        title = "详情"
+        title = "连接详情"
+        hint = "提示：单击或双击左侧服务/进程 PID 行查看连接详情。"
         if self.snapshot is not None and self.selected_detail is not None:
             mode, row_id = self.selected_detail
             if mode is DetailMode.SERVICE:
@@ -207,20 +264,70 @@ class NetopApp(App):
             else:
                 details = self.snapshot.process_details.get(row_id, ())
                 title = f"进程详情 PID {row_id}"
+            hint = "当前选择暂无连接详情。"
         filtered = self._filter_details(details, search)
+        if details and not filtered:
+            hint = "当前选择没有匹配的连接详情，可调整搜索条件。"
         rows = [
             (row.remote_ip, row.remote_port, format_rate(row.upload, self.byte_mode), format_rate(row.download, self.byte_mode))
             for row in filtered
         ]
-        self._replace_table("#details", rows, [row.row_id for row in filtered])
-        self.query_one("#details", DataTable).border_title = title
+        self._replace_details_table(rows, [row.row_id for row in filtered], title, hint)
 
-    def _replace_table(self, selector: str, rows: list[tuple[str, ...]], row_keys: list[str]) -> None:
+    def _replace_table(
+        self,
+        selector: str,
+        rows: list[tuple[str, ...]],
+        row_keys: list[str],
+        selected_row_key: str | None = None,
+    ) -> None:
         table = self.query_one(selector, DataTable)
+        self._set_table_rows(table, rows, row_keys, selected_row_key)
+        table.border_subtitle = f"总数 {len(rows)}"
+
+    def _set_table_rows(
+        self,
+        table: DataTable,
+        rows: list[tuple[str, ...]],
+        row_keys: list[str],
+        selected_row_key: str | None = None,
+    ) -> None:
+        cursor_row_key = selected_row_key or self._current_table_row_key(table)
         table.clear()
         for row, row_key in zip(rows, row_keys):
             table.add_row(*row, key=row_key)
-        table.border_subtitle = f"总数 {len(rows)}"
+        self._restore_table_cursor(table, cursor_row_key)
+
+    def _current_table_row_key(self, table: DataTable) -> str | None:
+        if table.row_count == 0 or not table.is_valid_row_index(table.cursor_row):
+            return None
+        row_keys = list(table.rows.keys())
+        if table.cursor_row >= len(row_keys):
+            return None
+        row_key = row_keys[table.cursor_row]
+        return str(getattr(row_key, "value", row_key))
+
+    def _restore_table_cursor(self, table: DataTable, row_key: str | None) -> None:
+        if row_key in table.rows:
+            table.move_cursor(row=table.get_row_index(row_key), animate=False)
+
+    def _replace_details_table(
+        self,
+        rows: list[tuple[str, ...]],
+        row_keys: list[str],
+        title: str,
+        hint: str,
+    ) -> None:
+        table = self.query_one("#details", DataTable)
+        self._set_table_rows(table, rows, row_keys)
+
+        details_panel = self.query_one("#details_panel", Container)
+        details_panel.border_title = title
+        details_panel.border_subtitle = f"总数 {len(rows)}"
+
+        details_hint = self.query_one("#details_hint", Static)
+        details_hint.update(hint)
+        details_hint.display = not rows
 
     def _service_row(self, row: ServiceSummary) -> tuple[str, ...]:
         return (
@@ -300,21 +407,44 @@ class NetopApp(App):
         return row.upload + row.download
 
     def _refresh_status(self, interfaces: int, services: int, processes: int) -> None:
-        mode = "字节" if self.byte_mode else "bit"
+        mode = "byte" if self.byte_mode else "bit"
+        privilege = "root/sudo" if self.snapshot and self.snapshot.privileged else "普通用户"
+        permission_hint = ""
+        if self.snapshot and self.snapshot.permission_limited:
+            permission_hint = " | PID受限"
         status = (
-            f"刷新 {self.refresh_interval:.0f}s | 单位 {mode} | 排序 {self.sort_key.value}\n"
+            f"刷新 {self.refresh_interval:.0f}s | 单位 {mode} | 排序 {self.sort_key.value} | 权限 {privilege} | "
             f"网卡 {interfaces} | 服务 {services} | 进程 {processes}"
+            f"{permission_hint}"
         )
         self.query_one("#status", Static).update(status)
 
+    def _resume_table_events(self) -> None:
+        self._suppress_table_events = False
+
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        row_key = str(getattr(event.row_key, "value", event.row_key))
-        table_id = event.data_table.id
+        self._update_selected_detail(event.data_table.id, event.row_key)
+
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        self._update_selected_detail(event.data_table.id, event.row_key)
+
+    def _update_selected_detail(self, table_id: str | None, row_key: object) -> None:
+        if self._suppress_table_events:
+            return
+        if table_id not in {"services", "processes"}:
+            return
+        row_key = str(getattr(row_key, "value", row_key))
+        if row_key == "None":
+            return
         if table_id == "services":
-            self.selected_detail = (DetailMode.SERVICE, row_key)
-        elif table_id == "processes":
-            self.selected_detail = (DetailMode.PROCESS, row_key)
-        self.refresh_tables()
+            selected_detail = (DetailMode.SERVICE, row_key)
+        else:
+            selected_detail = (DetailMode.PROCESS, row_key)
+        if self.selected_detail == selected_detail:
+            return
+        self.selected_detail = selected_detail
+        search = self.query_one("#search", Input).value.strip().lower()
+        self._refresh_details(search)
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id == "search":
@@ -337,6 +467,9 @@ class NetopApp(App):
     def action_fast_refresh(self) -> None:
         self.refresh_interval = 1.0
         self._reset_timer()
+
+    def action_sort_traffic(self) -> None:
+        self._set_sort(SortKey.TRAFFIC)
 
     def action_sort_connections(self) -> None:
         self._set_sort(SortKey.CONNECTIONS)

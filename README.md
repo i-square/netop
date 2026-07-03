@@ -1,4 +1,4 @@
-<img src="image/logo.png" alt="logo" style="zoom:100%;" />
+<img src="assets/logo.png" alt="logo" style="zoom:100%;" />
 
 ------
 
@@ -6,30 +6,38 @@
 
 [中文说明](README-CN.md)
 
-`netop` is a focused rewrite of the original `tmd-top` idea for my own
-day-to-day Linux network troubleshooting workflow. The upstream project has not
-seen active feature work for a while, and its original design bundled GeoIP
-lookup, SQLite snapshot tables, and firewall mutation into one TUI application.
-This fork intentionally narrows the scope to one job: fast, read-only terminal
-network monitoring.
+`netop` is a focused rewrite of the original `tmd-top` idea for day-to-day
+Linux network troubleshooting. The upstream project has not seen active feature
+work for a while, and its original design bundled GeoIP lookup, SQLite snapshot
+tables, firewall mutation, and TUI rendering into one application. This fork
+intentionally narrows the scope to one job: fast, read-only terminal network
+monitoring.
 
-## Refactor Design
+<img src="assets/netop-screenshot.png" alt="netop terminal UI" />
 
-- Pure monitoring: no IP ban button, no iptables/nftables/firewalld writes.
+## Design Goals
+
+- Pure monitoring: no IP ban button, no iptables, nftables, or firewalld writes.
 - Stateless runtime: no SQLite database and no persistent traffic history.
 - No GeoIP: no bundled MMDB file, no location column, no per-IP lookup cost.
-- Lightweight sampling: read TCP socket counters from `ss`, process metadata
-  from `ps`, and interface counters from `/proc/net/dev`.
-- In-memory deltas: keep only the previous and current snapshots, then calculate
-  rates with `time.monotonic()` to account for real sampling intervals.
-- Modern Textual path: use public Textual APIs and allow `textual>=8.2,<9`
+- Low overhead: collect from `ss`, `ps`, and `/proc/net/dev`, then calculate
+  rates from in-memory deltas.
+- Modern Textual path: use public Textual APIs and track `textual>=8.2,<9`
   instead of pinning to `textual==1.0.0`.
 
 ## Current Status
 
-This is an early refactor branch. The core package has been renamed to
-`netop`, the CLI command is now only `netop`, and compatibility with the old
-`tmd` / `tmd-top` command names is intentionally not preserved.
+This is an early refactor branch. The package and CLI entry point have been
+renamed to `netop`. Compatibility with the old `tmd` and `tmd-top` command
+names is intentionally not preserved.
+
+The UI currently shows:
+
+- interface traffic
+- listening services
+- outbound processes
+- per-service or per-process TCP connection details
+- search, refresh mode, sort mode, permission state, and rate unit state
 
 ## Requirements
 
@@ -50,6 +58,16 @@ python -m pip install -e .
 netop
 ```
 
+Run with elevated privileges when possible if you need complete PID/process
+ownership data:
+
+```shell
+sudo netop
+```
+
+When started as a normal user, `netop` will try `sudo -n ss` if passwordless
+sudo is available. It never prompts for a sudo password inside the TUI.
+
 ## Shortcuts
 
 | Key | Action |
@@ -59,12 +77,16 @@ netop
 | `b` | Toggle bit/byte rate mode |
 | `t` | Slow refresh to 5 seconds |
 | `y` | Restore refresh to 1 second |
+| `r` | Sort by total traffic |
 | `c` | Sort by connections |
 | `i` | Sort by unique IP count |
 | `u` | Sort by upload |
 | `d` | Sort by download |
 | `z` | Sort by CPU |
 | `x` | Sort by memory |
+
+Click or highlight a listening service or outbound process row to display its
+connection details on the right.
 
 ## Display Units
 
@@ -80,6 +102,18 @@ By default, `netop` displays network rates as bit rates such as `Kb/s` and
 4. `/proc/net/dev` provides interface-level counters.
 5. The collector computes deltas in memory and sends immutable snapshots to the
    Textual UI.
+
+## What Changed From `tmd-top`
+
+| Area | `netop` direction |
+| --- | --- |
+| GeoIP | Removed |
+| SQLite | Removed |
+| Firewall ban actions | Removed |
+| Package name | `netop` |
+| CLI command | `netop` only |
+| Textual dependency | `textual>=8.2,<9` |
+| Runtime model | Read-only, in-memory snapshots |
 
 ## Original Project
 

@@ -5,7 +5,9 @@ from netop.collector import (
     ConnKey,
     NetCollector,
     ProcInfo,
+    build_command,
     format_rate,
+    has_unknown_process_owner,
     parse_connection_counters,
     parse_net_entries,
     split_endpoint,
@@ -46,6 +48,20 @@ ESTAB 0 0 10.0.0.1:443 1.2.3.4:50000 users:(("nginx",pid=100,fd=7))
         self.assertEqual(format_rate(125000), "1.00 Mb/s")
         self.assertEqual(format_rate(1024, byte_mode=True), "1.00 KB/s")
 
+    def test_build_command_adds_non_interactive_sudo(self) -> None:
+        with (
+            patch("netop.collector.os.geteuid", return_value=1000),
+            patch("netop.collector.resolve_command", return_value="/usr/bin/sudo"),
+        ):
+            command = build_command("/usr/bin/ss", ["-tpanH"], use_sudo=True)
+
+        self.assertEqual(command, ["/usr/bin/sudo", "-n", "/usr/bin/ss", "-tpanH"])
+
+    def test_unknown_process_owner_is_permission_limited(self) -> None:
+        entries = parse_net_entries("ESTAB 0 0 10.0.0.1:443 1.2.3.4:50000\n")
+
+        self.assertTrue(has_unknown_process_owner(entries))
+
     def test_collector_uses_in_memory_deltas(self) -> None:
         ss_counters = [
             """0 0 10.0.0.1:443 1.2.3.4:50000
@@ -69,8 +85,9 @@ ESTAB 0 0 10.0.0.1:443 1.2.3.4:50000 users:(("nginx",pid=100,fd=7))
             patch("netop.collector.read_process_table", return_value={"100": ProcInfo("100", 1.0, 2.0, "nginx")}),
             patch("netop.collector.read_interface_counters", side_effect=interfaces),
             patch("netop.collector.time.monotonic", side_effect=[10.0, 12.0]),
+            patch("netop.collector.os.geteuid", return_value=1000),
         ):
-            collector = NetCollector()
+            collector = NetCollector(use_sudo=False)
             collector.collect()
             snapshot = collector.collect()
 
@@ -79,6 +96,8 @@ ESTAB 0 0 10.0.0.1:443 1.2.3.4:50000 users:(("nginx",pid=100,fd=7))
         self.assertEqual(snapshot.services[0].download, 1500.0)
         self.assertEqual(snapshot.interfaces[0].upload, 1000.0)
         self.assertEqual(snapshot.interfaces[0].download, 2500.0)
+        self.assertFalse(snapshot.privileged)
+        self.assertFalse(snapshot.permission_limited)
 
 
 if __name__ == "__main__":

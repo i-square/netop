@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from functools import lru_cache
+import os
 import re
 from shutil import which
 import subprocess
@@ -105,13 +106,17 @@ class MonitorSnapshot:
     service_details: dict[str, tuple[DetailSummary, ...]]
     process_details: dict[str, tuple[DetailSummary, ...]]
     captured_at: float
+    privileged: bool
+    permission_limited: bool
 
 
-def run_command(command: list[str]) -> str:
+def run_command(command: list[str], *, use_sudo: bool = False) -> str:
     executable = resolve_command(command[0])
     if executable is None:
         return ""
-    command = [executable, *command[1:]]
+    command = build_command(executable, command[1:], use_sudo=use_sudo)
+    if not command:
+        return ""
     try:
         result = subprocess.run(command, capture_output=True, text=True, check=False)
     except OSError:
@@ -119,6 +124,15 @@ def run_command(command: list[str]) -> str:
     if result.returncode != 0:
         return ""
     return result.stdout
+
+
+def build_command(executable: str, args: list[str], *, use_sudo: bool) -> list[str]:
+    if use_sudo and os.geteuid() != 0:
+        sudo = resolve_command("sudo")
+        if sudo is None:
+            return []
+        return [sudo, "-n", executable, *args]
+    return [executable, *args]
 
 
 @lru_cache(maxsize=16)
@@ -131,6 +145,18 @@ def resolve_command(name: str) -> str | None:
         if candidate.exists():
             return str(candidate)
     return None
+
+
+@lru_cache(maxsize=1)
+def can_use_passwordless_sudo() -> bool:
+    sudo = resolve_command("sudo")
+    if sudo is None or os.geteuid() == 0:
+        return False
+    try:
+        result = subprocess.run([sudo, "-n", "true"], capture_output=True, text=True, check=False)
+    except OSError:
+        return False
+    return result.returncode == 0
 
 
 def split_endpoint(value: str) -> tuple[str, str]:
@@ -269,17 +295,19 @@ def format_rate(bytes_per_second: float, byte_mode: bool = False) -> str:
 
 
 class NetCollector:
-    def __init__(self) -> None:
+    def __init__(self, *, use_sudo: bool | None = None) -> None:
         self._previous_connections: dict[ConnKey, ConnCounters] = {}
         self._previous_interfaces: dict[str, tuple[int, int]] = {}
         self._previous_time: float | None = None
+        self._use_sudo = can_use_passwordless_sudo() if use_sudo is None else use_sudo
 
     def collect(self) -> MonitorSnapshot:
         now = time.monotonic()
+        privileged = os.geteuid() == 0 or self._use_sudo
         current_connections = parse_connection_counters(
-            run_command(["ss", "-tniH", "state", "established"])
+            run_command(["ss", "-tniH", "state", "established"], use_sudo=self._use_sudo)
         )
-        net_entries = parse_net_entries(run_command(["ss", "-tpanH"]))
+        net_entries = parse_net_entries(run_command(["ss", "-tpanH"], use_sudo=self._use_sudo))
         processes = read_process_table()
         current_interfaces = read_interface_counters()
 
@@ -308,6 +336,8 @@ class NetCollector:
             service_details=service_details,
             process_details=process_details,
             captured_at=now,
+            privileged=privileged,
+            permission_limited=not privileged and has_unknown_process_owner(net_entries),
         )
 
     def _interval(self, now: float) -> float | None:
@@ -484,3 +514,7 @@ def build_details(rates: list[ConnRate]) -> tuple[DetailSummary, ...]:
         for index, rate in enumerate(rates)
     ]
     return tuple(sorted(rows, key=lambda item: item.upload + item.download, reverse=True))
+
+
+def has_unknown_process_owner(entries: tuple[NetEntry, ...]) -> bool:
+    return any(entry.pid == "-" and entry.state in {"LISTEN", "ESTABLISHED"} for entry in entries)
