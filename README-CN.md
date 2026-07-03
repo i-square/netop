@@ -1,17 +1,17 @@
-<img src="assets/logo.png" alt="logo" style="zoom:100%;" />
+![netop logo](https://raw.githubusercontent.com/i-square/netop/main/assets/logo.png)
 
 ------
 
 # netop
 
-[English README](README.md)
+[English README](https://github.com/i-square/netop/blob/main/README.md)
 
 `netop` 是基于原 `tmd-top` 思路做的一次面向 Linux 日常网络排障的精简重构。
 原仓库已经有一段时间没有持续演进，原实现把 GeoIP 查询、SQLite 快照表、
 IP 封禁和 TUI 渲染放在一个应用里。本分支刻意收窄范围，只保留一个目标：
 快速、只读、低开销的 Linux 终端网络监控。
 
-<img src="assets/netop-screenshot.png" alt="netop terminal UI" />
+![netop terminal UI](https://raw.githubusercontent.com/i-square/netop/main/assets/netop-screenshot.png)
 
 ## 设计目标
 
@@ -42,7 +42,22 @@ IP 封禁和 TUI 渲染放在一个应用里。本分支刻意收窄范围，只
 - `iproute2`，用于提供 `ss`
 - `procps`，用于提供 `ps`
 
-## 本地安装
+## 安装
+
+推荐直接从 PyPI 安装：
+
+```shell
+python -m pip install netop
+```
+
+如果你的默认 pip 源是内网镜像，且还没有同步 `netop`，可以显式使用官方
+PyPI：
+
+```shell
+python -m pip install --index-url https://pypi.org/simple netop
+```
+
+本地开发时使用源码安装：
 
 ```shell
 python -m pip install -e .
@@ -50,18 +65,21 @@ python -m pip install -e .
 
 ## 使用
 
+如果安装在普通用户环境中，直接运行：
+
 ```shell
 netop
 ```
 
-如果希望尽量完整地显示 PID 和进程归属，建议用 root 权限运行：
+普通用户模式下，`netop` 会在系统配置了免密 sudo 时尝试使用 `sudo -n ss`
+读取更多 PID 和进程归属信息；TUI 内不会弹出 sudo 密码输入。
+
+如果安装在 root 可见的环境中，或者你希望尽量完整地显示 socket 归属信息，
+可以使用：
 
 ```shell
 sudo netop
 ```
-
-普通用户启动时，如果系统配置了免密 sudo，`netop` 会尝试使用 `sudo -n ss`
-读取更多 socket 进程信息。TUI 内不会弹出 sudo 密码输入。
 
 ## 快捷键
 

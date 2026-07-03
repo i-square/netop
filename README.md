@@ -1,10 +1,10 @@
-<img src="assets/logo.png" alt="logo" style="zoom:100%;" />
+![netop logo](https://raw.githubusercontent.com/i-square/netop/main/assets/logo.png)
 
 ------
 
 # netop
 
-[中文说明](README-CN.md)
+[中文说明](https://github.com/i-square/netop/blob/main/README-CN.md)
 
 `netop` is a focused rewrite of the original `tmd-top` idea for day-to-day
 Linux network troubleshooting. The upstream project has not seen active feature
@@ -13,7 +13,7 @@ tables, firewall mutation, and TUI rendering into one application. This fork
 intentionally narrows the scope to one job: fast, read-only terminal network
 monitoring.
 
-<img src="assets/netop-screenshot.png" alt="netop terminal UI" />
+![netop terminal UI](https://raw.githubusercontent.com/i-square/netop/main/assets/netop-screenshot.png)
 
 ## Design Goals
 
@@ -46,7 +46,22 @@ The UI currently shows:
 - `iproute2` for `ss`
 - `procps` for `ps`
 
-## Install From Source
+## Install
+
+The recommended installation path is PyPI:
+
+```shell
+python -m pip install netop
+```
+
+If your default pip index is an internal mirror that has not synced `netop`
+yet, install from the official PyPI index:
+
+```shell
+python -m pip install --index-url https://pypi.org/simple netop
+```
+
+For local development, install from source:
 
 ```shell
 python -m pip install -e .
@@ -54,19 +69,22 @@ python -m pip install -e .
 
 ## Usage
 
+If `netop` was installed in a user environment, run it directly:
+
 ```shell
 netop
 ```
 
-Run with elevated privileges when possible if you need complete PID/process
-ownership data:
+In normal-user mode, `netop` will still try `sudo -n ss` when passwordless sudo
+is available, so it can display more PID/process ownership data without
+prompting for a password inside the TUI.
+
+If `netop` is installed in a root-visible environment, or you need the most
+complete socket ownership data, run:
 
 ```shell
 sudo netop
 ```
-
-When started as a normal user, `netop` will try `sudo -n ss` if passwordless
-sudo is available. It never prompts for a sudo password inside the TUI.
 
 ## Shortcuts
 
