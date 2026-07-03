@@ -33,9 +33,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/CDWEN0526/netop"
-Repository = "https://github.com/CDWEN0526/netop"
-Issues = "https://github.com/CDWEN0526/netop/issues"
+Homepage = "https://github.com/i-square/netop"
+Repository = "https://github.com/i-square/netop"
+Issues = "https://github.com/i-square/netop/issues"
 
 [project.scripts]
 netop = "netop.main:main"
